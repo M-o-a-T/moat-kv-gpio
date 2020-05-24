@@ -1,22 +1,22 @@
 ==============
-Using DistWAGO
+Using DistGPIO
 ==============
 
-Run "distkv client wago monitor" to connect to the server on localhost.
+Run "distkv client gpio monitor" to connect to the server on localhost.
 
-See "distkv dump cfg wago" for configuration options.
+See "distkv dump cfg gpio" for configuration options.
 
 Data structure
 ==============
 
-On disk, the path to the port is ".distkv wago SERVER TYPE CARD PORT" by
+On disk, the path to the port is ".distkv gpio SERVER TYPE CARD PORT" by
 default. All attributes are also looked up in the higher nodes, so you can
 set per-type or per-server defaults easily.
 
 Server attributes
 +++++++++++++++++
 
-* server: a dict with host and port. Set by ``distkv client wago server``.
+* server: a dict with host and port. Set by ``distkv client gpio server``.
 
 * poll: The cylce time of the controller. Typical: 0.05 seconds.
 
@@ -113,12 +113,12 @@ Command line
 ============
 
 
-.. program:: distkv client wago
+.. program:: distkv client gpio
 
 The main entry point for this extension.
 
 
-.. program:: distkv client wago port
+.. program:: distkv client gpio port
 
 Print or modify port settings.
 
@@ -144,7 +144,7 @@ lets you easily change more than one at a time.
    Card and port are numeric, starting with 1.
 
 
-.. program:: distkv client wago attr
+.. program:: distkv client gpio attr
 
 Print, modify or delete a single attribute.
 
@@ -152,7 +152,7 @@ If you set a value that is evaluated to a mapping, exising values will be merged
 
 .. option:: -a, --attr NAME
 
-   The name of the attribute to display, change or delete. Use more than
+   The name of the attribute to display, change, or delete. Use more than
    once for nested values.
 
    Default: show all attributes.
@@ -161,25 +161,32 @@ If you set a value that is evaluated to a mapping, exising values will be merged
 
    The new value of the attribute.
 
-   To delete an attribute, use ``-ev-``.
-
-   Do not feorget ``-e`` if the value is numeric!
+   Do not forget ``-e`` if the value is numeric!
 
 .. option:: -e, --eval
 
    The attribute's value is a Python expression.
 
+   To delete an attribute, use ``--eval`` without ``--value``.
 
-.. program:: distkv client wago list
+.. option:: -s, --split
 
-Print the current state of your Wago controllers.
+   The attribute's value is a space-separated list of names.
 
-This command does not access the device; it is solely for displaying the
-configuration of its interaction with DistKV.
+   If the list contains actual numbers, you need to use a Python expression
+   and "--eval".
+
+
+.. program:: distkv client gpio list
+
+Print the current state of your GPIO controllers.
+
+This command does not access the device; it is used solely for displaying
+the configuration of the interaction with DistKV.
 
 .. option:: server
 
-   The Wago controller to access.
+   The GPIO controller to access.
 
 .. option:: type
 
@@ -195,9 +202,9 @@ configuration of its interaction with DistKV.
    The port number. Ports are numbered starting with 1.
 
 
-.. program:: distkv client wago monitor
+.. program:: distkv client gpio monitor
 
-This is a stand-alone Wago monitor. It connects to a single controller
+This is a stand-alone GPIO monitor. It connects to a single controller
 and runs polls and monitors.
 
 .. option:: server
@@ -229,7 +236,7 @@ this might cause results to be read more often than configured here.
    The interval to poll at. Use ``-`` to disable polling.
 
 
-.. program:: distkv client wago set
+.. program:: distkv client gpio set
 
 You can use this command to add arbitrary values to a device's entry. Use
 this e.g. to add a note where the device is located, or to signal your own

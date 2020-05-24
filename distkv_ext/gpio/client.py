@@ -13,11 +13,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-@main.group(short_help="Manage Wago controllers.")  # pylint: disable=undefined-variable
+@main.group(short_help="Manage GPIO controllers.")  # pylint: disable=undefined-variable
 @click.pass_obj
 async def cli(obj):
     """
-    List Wago controllers, modify device handling …
+    List GPIO controllers, modify device handling …
     """
     pass
 
@@ -32,7 +32,7 @@ async def dump(obj, path):
     if len(path) > 4:
         raise click.UsageError("Only up to four path elements allowed")
 
-    async for r in obj.client.get_tree(*obj.cfg.wago.prefix, *path_eval(path, (3,4)), nchain=obj.meta, max_depth=4-len(path)):
+    async for r in obj.client.get_tree(*obj.cfg.gpio.prefix, *path_eval(path, (3,4)), nchain=obj.meta, max_depth=4-len(path)):
         pl = len(path) + len(r.path)
         rr = res
         if r.path:
@@ -52,7 +52,7 @@ async def list(obj, path):
     if len(path) > 4:
         raise click.UsageError("Only up to four path elements allowed")
 
-    async for r in obj.client.get_tree(*obj.cfg.wago.prefix, *path_eval(path, (3,4)), nchain=obj.meta, min_depth=1, max_depth=1):
+    async for r in obj.client.get_tree(*obj.cfg.gpio.prefix, *path_eval(path, (3,4)), nchain=obj.meta, min_depth=1, max_depth=1):
         print(r.path[-1], file=obj.stdout)
 
 
@@ -60,28 +60,33 @@ async def list(obj, path):
 @click.option("-a","--attr", multiple=True, help="Attribute to list or modify.")
 @click.option("-v","--value",help="New value of the attribute.")
 @click.option("-e", "--eval", "eval_", is_flag=True, help="The value shall be evaluated.")
+@click.option("-s", "--split", is_flag=True, help="The value shall be word-split.")
 @click.argument("path", nargs=-1)
 @click.pass_obj
-async def attr_(obj, attr, value, path, eval_):
-    """Set/get/delete an attribute on a given Wago element.
+async def attr_(obj, attr, value, path, eval_, split):
+    """Set/get/delete an attribute on a given GPIO element.
 
-    An evaluated '-' deletes the attribute.
+    `--eval` without a value deletes the attribute.
     """
+    if split and eval_:
+        raise click.UsageError("split and eval don't work together.")
     if value and not attr:
         raise click.UsageError("Values must have locations ('-a ATTR').")
+    if split:
+        value = value.split()
     await _attr(obj, attr, value, path, eval_)
 
 @cli.command()
+@click.option("-t", "--type", "typ", help="Port type. 'input' or 'output'.")
 @click.option("-m", "--mode", help="Port mode. Use '-' to disable.")
-@click.option("-a", "--attr", nargs=2, multiple=True, help="One attribute to set (NAME VALUE)")
+@click.option("-a", "--attr", nargs=2, multiple=True, help="One attribute to set (NAME VALUE). May be used multiple times.")
 @click.argument("path", nargs=-1)
 @click.pass_obj
-async def port(obj, path, mode, attr):
+async def port(obj, path, typ, mode, attr):
     """Set/get/delete port settings. This is a shortcut for the "attr" command.
 
-    An evaluated '-' deletes the attribute.
-
-    Known attributes for modes:
+    \b
+    Known attributes for types+modes:
       input:
         read: dest (path)
         count: + interval (float), count (+-x for up/down/both)
@@ -90,35 +95,39 @@ async def port(obj, path, mode, attr):
         oneshot: + t_on (float), rest (+-), state (path)
         pulse:   + t_off (float)
 
+    \b
     Paths elements are separated by spaces.
     "rest" is the state of the wire when the input is False.
     Floats may be paths, in which case they're read from there when starting.
     """
-    if len(path) != 4:
-        raise click.UsageError("Path must be 4 elements: server+type+card+port.")
-    res = await obj.client.get(*obj.cfg.wago.prefix, *path_eval(path, (3,4)), nchain=obj.meta or 1)
+    if len(path) != 3:
+        raise click.UsageError("Path must be 3 elements: host gpioname linenr")
+    res = await obj.client.get(*obj.cfg.gpio.prefix, *path_eval(path, (3,)), nchain=obj.meta or 1)
     val = res.get('value', attrdict())
 
+    if type:
+        attr = (('type', typ),) + attr
     if mode:
         attr = (('mode', mode),) + attr
     for k,v in attr:
-        if v == '-':
-            val.pop(k,None)
-        elif k == "count":
+        if k == "count":
             if v == '+':
                 v = True
             elif v == '-':
                 v = False
             elif v in 'xX*':
                 v = None
+            else:
+                v = click.UsageError("'count' wants one of + - X")
         elif k == "rest":
             if v == '+':
                 v = True
             elif v == '-':
                 v = False
+            else:
+                v = click.UsageError("'rest' wants one of + -")
         elif k in {"src", "dest"} or ' ' in v:
-            v = v.split(' ')
-            v = tuple(x for x in v if x != '')
+            v = v.split()
         else:
             try:
                 v = int(v)
@@ -127,28 +136,32 @@ async def port(obj, path, mode, attr):
                     v = float(v)
                 except ValueError:
                     pass
+        if isinstance(v,click.UsageError):
+            raise v
         val[k] = v
 
-    await _attr(obj, (), val, path, True, res)
+    await _attr(obj, (), val, path, False, res)
 
 async def _attr(obj, attr, value, path, eval_, res=None):
     # Sub-attr setter.
     # Special: if eval_ is True, a value of '-' deletes. A mapping replaces instead of updating.
     if res is None:
-        res = await obj.client.get(*obj.cfg.wago.prefix, *path_eval(path, (3,4)), nchain=obj.meta or (value is not None))
+        res = await obj.client.get(*obj.cfg.gpio.prefix, *path_eval(path, (3,4)), nchain=obj.meta or (value is not None))
     try:
         val = res.value
     except AttributeError:
         res.chain = None
     if eval_:
-        if value == "-":
+        if value is None:
             value = res_delete(res, *attr)
-        elif isinstance(value, Mapping):
-            # replace
-            value = res_delete(res, *attr)
-            value = value._update(*attr, value=value)
         else:
-            value = res_update(res, *attr, value=value)
+            value = eval(value)
+            if isinstance(value, Mapping):
+                # replace
+                value = res_delete(res, *attr)
+                value = value._update(*attr, value=value)
+            else:
+                value = res_update(res, *attr, value=value)
     else:
         if value is None:
             if not attr and obj.meta:
@@ -158,7 +171,7 @@ async def _attr(obj, attr, value, path, eval_, res=None):
             yprint(val, stream=obj.stdout)
             return
         value = res_update(res, *attr, value=value)
-    res = await obj.client.set(*obj.cfg.wago.prefix, *path_eval(path, (3,4)), value=value, nchain=obj.meta, chain=res.chain)
+    res = await obj.client.set(*obj.cfg.gpio.prefix, *path_eval(path, (3,4)), value=value, nchain=obj.meta, chain=res.chain)
     if obj.meta:
         yprint(res, stream=obj.stdout)
 
@@ -172,11 +185,13 @@ async def _attr(obj, attr, value, path, eval_, res=None):
 async def server(obj, name, host, port, delete):
     """
     Configure a server.
+
+    No arguments: list them.
     """
     if not name:
         if host or port or delete:
             raise click.UsageError("Use a server name to set parameters")
-        async for r in obj.client.get_tree(*obj.cfg.wago.prefix, min_depth=1, max_depth=1):
+        async for r in obj.client.get_tree(*obj.cfg.gpio.prefix, min_depth=1, max_depth=1):
             print(r.path[-1], file=obj.stdout)
         return
     elif len(name) > 1:
@@ -194,7 +209,7 @@ async def server(obj, name, host, port, delete):
             else:
                 value.port = int(port)
     elif delete:
-        res = await obj.client.delete_tree(*obj.cfg.wago.prefix, name, nchain=obj.meta)
+        res = await obj.client.delete_tree(*obj.cfg.gpio.prefix, name, nchain=obj.meta)
         if obj.meta:
             yprint(res, stream=obj.stdout)
         return
@@ -204,14 +219,15 @@ async def server(obj, name, host, port, delete):
 
 
 @cli.command()
-@click.argument("name", nargs=1)
+@click.argument("name", nargs=2)
 @click.pass_obj
 async def monitor(obj, name):
     """Stand-alone task to monitor a single contoller.
     """
-    from distkv_ext.wago.task import task
-    from distkv_ext.wago.model import WAGOroot
-    server = await WAGOroot.as_handler(obj.client)
+    from distkv_ext.gpio.task import task
+    from distkv_ext.gpio.model import GPIOroot
+    server = await GPIOroot.as_handler(obj.client)
     await server.wait_loaded()
-    await task(obj.client, obj.cfg.wago, server[name], None)
+    chip = server[name[0]][name[1]]
+    await task(obj.client, obj.cfg.gpio, chip, None)
 
