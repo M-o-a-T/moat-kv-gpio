@@ -6,3 +6,8 @@ export PYBUILD_NAME=distgpio
 %:
 	dh $@ --with python3 --buildsystem=pybuild
 
+debian/distkw-gpio.service: distgpio.service
+	cp $< $@
+
+override_dh_auto_install: debian/distkw-gpio.service
+	dh_auto_install
