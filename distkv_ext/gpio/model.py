@@ -109,7 +109,7 @@ class GPIOline(_GPIOnode):
     # Input #
 
     async def _poll_task(self, evt, dest):
-        low = self.find_cfg('low')
+        negate = self.find_cfg('low')
 
         async with anyio.open_cancel_scope() as sc:
             self._poll = sc
@@ -117,11 +117,11 @@ class GPIOline(_GPIOnode):
             with wire.monitor(gpio.REQUEST_EVENT_BOTH_EDGES) as mon:
                 await evt.set()
                 async for e in mon:
-                    await self.client.set(*dest, value=(e.value != low))
+                    await self.client.set(*dest, value=(e.value != negate))
                     await self.root.err.record_working("gpio", *self.subpath)
 
     async def _button_task(self, evt, dest):
-        low = self.find_cfg('low')
+        negate = self.find_cfg('low')
         skip = self.find_cfg('skip')
         bounce = self.find_cfg('t_bounce')
         idle = self.find_cfg('t_idle')
@@ -146,11 +146,11 @@ class GPIOline(_GPIOnode):
                     return "%03d.%03d" % (a[0]%1000, a[1]/1000000)
 
                 def inv(x):
-                    nonlocal low
+                    nonlocal negate
 
                     if x is None:
                         return x
-                    if low:
+                    if negate:
                         return not x
                     else:
                         return bool(x)
@@ -369,6 +369,7 @@ class GPIOline(_GPIOnode):
         Also the value is mirrored to ``cur`` if that's set.
         """
         if line is not None:
+            logger.debug("Setting %s to %s",line,value)
             line.value = val != negate
         if state is not None:
             await self.client.set(*state, value=val)
@@ -380,8 +381,8 @@ class GPIOline(_GPIOnode):
         ``intv`` seconds. The current state is written to ``cur``, if
         present.
 
-        ``intv`` and ``direc`` may be numbers or paths, if the latter
-        they're read from DistKV. ``cur`` must be a path.
+        ``t_on`` may be a number or a path, if the latter
+        it's read from DistKV. ``state`` must be a path.
 
         """
 
@@ -391,8 +392,9 @@ class GPIOline(_GPIOnode):
                 t_on = (await self.client.get(*t_on)).value_or(None)
             async with anyio.open_cancel_scope() as sc:
                 try:
-                    self._work = sc
-                    self._work_done = anyio.create_event()
+                    w, self._work = self._work,sc
+                    if w is not None:
+                        await w.cancel()
                     try:
                         await self._set_value(line,True,state,negate)
                         await evt.set()
@@ -401,24 +403,20 @@ class GPIOline(_GPIOnode):
                         await anyio.sleep(t_on)
 
                     finally:
-                        async with anyio.fail_after(2, shield=True):
-                            await self._set_value(line,False,state,negate)
+                        if self._work is sc:
+                            async with anyio.fail_after(2, shield=True):
+                                await self._set_value(line,False,state,negate)
                 finally:
+                    await evt.set() # safety
                     if self._work is sc:
-                        await self._work_done.set()
                         self._work = None
-                        self._work_done = None
 
         if val:
             evt = anyio.create_event()
             await self.task_group.spawn(work_oneshot, evt)
             await evt.wait()
         else:
-            if self._work:
-                await self._work.cancel()
-                await self._work_done.wait()
-            else:
-                await self._set_value(None, False, state, negate)
+            await self._set_value(None, False, state, negate)
 
     async def _pulse_value(self, line, val, state, negate, t_on, t_off):
         """
@@ -436,43 +434,40 @@ class GPIOline(_GPIOnode):
             if t_on is None or t_off is None:
                 raise StopAsyncIteration
 
-            try:
-                async with anyio.open_cancel_scope() as sc:
-                    self._work = sc
-                    self._work_done = anyio.create_event()
-                    await evt.set()
+            async with anyio.open_cancel_scope() as sc:
+                try:
+                    w, self._work = self._work,sc
+                    if w is not None:
+                        await w.cancel()
                     if state is not None:
                         await self.client.set(*state, value=t_on/(t_on+t_off))
                     while True:
                         line.value = not negate
+                        await evt.set()
                         await anyio.sleep(t_on)
                         line.value = negate
                         await anyio.sleep(t_off)
             finally:
-                if self._work is sc:
-                    await self._work_done.set()
-                    self._work = None
-                    self._work_done = None
-
+                await evt.set()
+                if self._work is not sc:
+                    return
+                self._work = None
+                if state is None:
+                    return
                 async with anyio.fail_after(2, shield=True):
-                    if state is not None:
-                        try:
-                            val = line.value
-                        except ClosedResourceError:
-                            pass
-                        else:
-                            await self.client.set(*state, value=(val != negate))
+                    try:
+                        val = line.value
+                    except ClosedResourceError:
+                        pass
+                    else:
+                        await self.client.set(*state, value=(val != negate))
 
         if val:
             evt = anyio.create_event()
             await self.task_group.spawn(work_pulse, evt)
             await evt.wait()
         else:
-            if self._work:
-                await self._work.cancel()
-                await self._work_done.wait()
-            else:
-                await self._set_value(None, False, state, negate)
+            await self._set_value(None, False, state, negate)
 
 
     async def _setup_output(self):
@@ -485,19 +480,19 @@ class GPIOline(_GPIOnode):
             return
 
         # Rest state. The input value in DistKV is always active=high.
-        low = self.find_cfg('low')
+        negate = self.find_cfg('low')
         t_on = self.find_cfg('t_on', default=None)
         t_off = self.find_cfg('t_off', default=None)
         state = self.find_cfg('state', default=None)
 
         evt = anyio.create_event()
         if mode == "write":
-            await self.task_group.spawn(self.with_output, evt, src, self._set_value, state, low)
+            await self.task_group.spawn(self.with_output, evt, src, self._set_value, state, negate)
         elif mode == "oneshot":
             if t_on is None:
                 await self.root.err.record_error("gpio", *self.subpath, comment="t_on not set", data={"path":self.subpath})
                 return
-            await self.task_group.spawn(self.with_output, evt, src, self._oneshot_value, state, low, t_on)
+            await self.task_group.spawn(self.with_output, evt, src, self._oneshot_value, state, negate, t_on)
         elif mode == "pulse":
             if t_on is None:
                 await self.root.err.record_error("gpio", *self.subpath, comment="t_on not set", data={"path":self.subpath})
@@ -505,7 +500,7 @@ class GPIOline(_GPIOnode):
             if t_off is None:
                 await self.root.err.record_error("gpio", *self.subpath, comment="t_off not set", data={"path":self.subpath})
                 return
-            await self.task_group.spawn(self.with_output, evt, src, self._pulse_value, state, low, t_on, t_off)
+            await self.task_group.spawn(self.with_output, evt, src, self._pulse_value, state, negate, t_on, t_off)
         else:
             await self.root.err.record_error("gpio", *self.subpath, comment="mode unknown", data={"path":self.subpath, "mode":mode})
             return
