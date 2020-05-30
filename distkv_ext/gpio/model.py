@@ -120,9 +120,13 @@ class GPIOline(_GPIOnode):
                     await self.client.set(*dest, value=(e.value != low))
                     await self.root.err.record_working("gpio", *self.subpath)
 
-    async def _button_task(self, evt, dest, bounce,idle,count):
+    async def _button_task(self, evt, dest):
         low = self.find_cfg('low')
         skip = self.find_cfg('skip')
+        bounce = self.find_cfg('t_bounce')
+        idle = self.find_cfg('t_idle')
+        idle2 = self.find_cfg('t_clear')
+        count = self.find_cfg('count')
 
         logger.debug("bounce %s idle %s count %s", bounce,idle,count)
         async with anyio.open_cancel_scope() as sc:
@@ -201,16 +205,30 @@ class GPIOline(_GPIOnode):
                             res.append(int(td(e2,e0)/bounce))
                         e0 = e1 = e2
                         
+                clear = True
                 while True:
-                    e = await mon.__anext__()
+                    if clear and idle2:
+                        try:
+                            async with anyio.fail_after(idle2):
+                                e = await mon.__anext__()
+                        except TimeoutError:
+                            await self.client.set(*dest, value=None)
+                            res = False
+                            continue
+                    else:
+                        e = await mon.__anext__()
                     ival,res,oval = await record(e)
                     if not res:
                         continue
 
                     await self.client.set(*dest, value={"start":ival,"seq":res,"end":oval,"t":bounce})
                     await self.root.err.record_working("gpio", *self.subpath)
+                    clear = True
 
-    async def _count_task(self, evt, dest, intv, direc):
+    async def _count_task(self, evt, dest):
+        intv = self.find_cfg('interval')
+        direc = self.find_cfg('count')
+
         async with anyio.open_cancel_scope() as sc:
             self._poll = sc
 
@@ -291,15 +309,10 @@ class GPIOline(_GPIOnode):
             await self.task_group.spawn(self._poll_task, evt, dest)
         elif mode == "count":
             # These two are in the global config and thus can't raise KeyError
-            intv = self.find_cfg('interval')
-            direc = self.find_cfg('count')
-            await self.task_group.spawn(self._count_task, evt, dest, intv, direc)
+            await self.task_group.spawn(self._count_task, evt, dest)
         elif mode == "button":
             # These two are in the global config and thus can't raise KeyError
-            bounce = self.find_cfg('t_bounce')
-            idle = self.find_cfg('t_idle')
-            count = self.find_cfg('count')
-            await self.task_group.spawn(self._button_task, evt, dest, bounce,idle,count)
+            await self.task_group.spawn(self._button_task, evt, dest)
         else:
             await self.root.err.record_error("gpio", *self.subpath, comment="mode unknown", data={"path":self.subpath, "mode":mode})
             return
