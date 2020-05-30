@@ -369,7 +369,7 @@ class GPIOline(_GPIOnode):
         Also the value is mirrored to ``cur`` if that's set.
         """
         if line is not None:
-            logger.debug("Setting %s to %s",line,value)
+            logger.debug("Setting %s to %s",line,val)
             line.value = val != negate
         if state is not None:
             await self.client.set(*state, value=val)
@@ -398,8 +398,6 @@ class GPIOline(_GPIOnode):
                     try:
                         await self._set_value(line,True,state,negate)
                         await evt.set()
-                        if state is not None:
-                            await self.client.set(*state, value=True)
                         await anyio.sleep(t_on)
 
                     finally:
@@ -452,22 +450,24 @@ class GPIOline(_GPIOnode):
                     if self._work is not sc:
                         return
                     self._work = None
-                    if state is None:
-                        return
                     async with anyio.fail_after(2, shield=True):
                         try:
-                            val = line.value
+                            line.value = negate
                         except ClosedResourceError:
                             pass
                         else:
-                            await self.client.set(*state, value=(val != negate))
+                            if state is not None:
+                                await self.client.set(*state, value=False)
 
         if val:
             evt = anyio.create_event()
             await self.task_group.spawn(work_pulse, evt)
             await evt.wait()
         else:
-            await self._set_value(None, False, state, negate)
+            w,self._work = self._work,None
+            if w is not None:
+                await w.cancel()
+            await self._set_value(line, False, state, negate)
 
 
     async def _setup_output(self):
