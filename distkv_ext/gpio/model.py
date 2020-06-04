@@ -87,10 +87,24 @@ class GPIOline(_GPIOnode):
     """Describes one GPIO line.
     """
     _work = None
+    _task_scope = None
+    _task_done = None
 
     def __init__(self,*a,**k):
         super().__init__(*a,**k)
         self.logger = logging.getLogger(".".join(("gpio",self._path[-2],str(self._path[-1]))))
+
+    async def set_value(self, value):
+        await super().set_value(value)
+        if value is NotGiven:
+            await self._kill_task()
+            
+    async def _kill_task(self):
+        if self._task_scope is not None:
+            await self._task_scope.cancel()
+            await self._task_done.wait()
+            self._task_scope = None
+            self._task_done = None
 
     async def setup(self):
         await super().setup()
@@ -109,6 +123,17 @@ class GPIOline(_GPIOnode):
             await self._setup_output()
         else:
             await self.root.err.record_error("gpio", *self.subpath, comment="Line type not set", data={"path":self.subpath,"typ":typ})
+
+    async def _task(self,p,*a,**k):
+        await self._kill_task()
+        try:
+            async with anyio.open_cancel_scope() as sc:
+                self._task_scope = sc
+                self._task_done = anyio.create_event()
+                await p(*a,**k)
+        finally:
+            self._task_scope = None
+            await self._task_done.set()
 
     # Input #
 
@@ -129,7 +154,7 @@ class GPIOline(_GPIOnode):
         skip = self.find_cfg('skip')
         bounce = self.find_cfg('t_bounce')
         idle = self.find_cfg('t_idle')
-        idle_h = self.find_cfg('t_idle_on',idle)
+        idle_h = self.find_cfg('t_idle_on', default=idle)
         idle_clear = self.find_cfg('t_clear')
         count = self.find_cfg('count')
         flow = self.find_cfg('flow')
@@ -346,13 +371,13 @@ class GPIOline(_GPIOnode):
 
         evt = anyio.create_event()
         if mode == "read":
-            await self.task_group.spawn(self._poll_task, evt, dest)
+            await self.task_group.spawn(self._task,self._poll_task, evt, dest)
         elif mode == "count":
             # These two are in the global config and thus can't raise KeyError
-            await self.task_group.spawn(self._count_task, evt, dest)
+            await self.task_group.spawn(self._task,self._count_task, evt, dest)
         elif mode == "button":
             # These two are in the global config and thus can't raise KeyError
-            await self.task_group.spawn(self._button_task, evt, dest)
+            await self.task_group.spawn(self._task,self._button_task, evt, dest)
         else:
             await self.root.err.record_error("gpio", *self.subpath, comment="mode unknown", data={"path":self.subpath, "mode":mode})
             return
@@ -527,12 +552,12 @@ class GPIOline(_GPIOnode):
 
         evt = anyio.create_event()
         if mode == "write":
-            await self.task_group.spawn(self.with_output, evt, src, self._set_value, state, negate)
+            await self.task_group.spawn(self._task, self.with_output, evt, src, self._set_value, state, negate)
         elif mode == "oneshot":
             if t_on is None:
                 await self.root.err.record_error("gpio", *self.subpath, comment="t_on not set", data={"path":self.subpath})
                 return
-            await self.task_group.spawn(self.with_output, evt, src, self._oneshot_value, state, negate, t_on)
+            await self.task_group.spawn(self._task, self.with_output, evt, src, self._oneshot_value, state, negate, t_on)
         elif mode == "pulse":
             if t_on is None:
                 await self.root.err.record_error("gpio", *self.subpath, comment="t_on not set", data={"path":self.subpath})
@@ -540,7 +565,7 @@ class GPIOline(_GPIOnode):
             if t_off is None:
                 await self.root.err.record_error("gpio", *self.subpath, comment="t_off not set", data={"path":self.subpath})
                 return
-            await self.task_group.spawn(self.with_output, evt, src, self._pulse_value, state, negate, t_on, t_off)
+            await self.task_group.spawn(self._task, self.with_output, evt, src, self._pulse_value, state, negate, t_on, t_off)
         else:
             await self.root.err.record_error("gpio", *self.subpath, comment="mode unknown", data={"path":self.subpath, "mode":mode})
             return
