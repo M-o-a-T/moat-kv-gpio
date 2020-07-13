@@ -11,8 +11,9 @@ Homepage: https://github.com/smurfix/distgpio
 Package: distkv-gpio
 Architecture: all
 Depends: ${misc:Depends}, ${python3:Depends},
-  distkv (>= 0.30),
   python3-asyncgpio,
+Recommends:
+  distkv (>= 0.30),
 Replaces: python3-distgpio
 Conflicts: python3-distgpio
 Description: A distributed no-master key-value store

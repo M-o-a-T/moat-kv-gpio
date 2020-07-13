@@ -1,3 +1,9 @@
+distgpio (0.8.2-2) unstable; urgency=medium
+
+  * distkv may be remote, thus recommends:.
+
+ -- Matthias Urlichs <matthias@urlichs.de>  Mon, 13 Jul 2020 10:17:49 +0200
+
 distgpio (0.8.2-1) unstable; urgency=medium
 
   * Merge
