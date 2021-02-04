@@ -1,3 +1,9 @@
+distkv-gpio (0.10.2-1) unstable; urgency=medium
+
+  * Merge
+
+ -- Matthias Urlichs <matthias@urlichs.de>  Thu, 04 Feb 2021 11:35:03 +0100
+
 distgpio (0.10.0-1) unstable; urgency=medium
 
   * Merge
