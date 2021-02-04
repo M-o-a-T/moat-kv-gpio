@@ -3,7 +3,7 @@ Maintainer: Matthias Urlichs <matthias@urlichs.de>
 Section: python
 Priority: optional
 Build-Depends: dh-python, python3-setuptools, python3-all, debhelper (>= 9),
-  distkv (>= 0.30),
+  distkv (>= 0.50),
   python3-asyncgpio,
 Standards-Version: 3.9.6
 Homepage: https://github.com/smurfix/distgpio
@@ -11,7 +11,7 @@ Homepage: https://github.com/smurfix/distgpio
 Package: distkv-gpio
 Architecture: all
 Depends: ${misc:Depends}, ${python3:Depends},
-  distkv (>= 0.30),
+  distkv (>= 0.50),
   python3-asyncgpio,
 Replaces: python3-distgpio
 Conflicts: python3-distgpio
