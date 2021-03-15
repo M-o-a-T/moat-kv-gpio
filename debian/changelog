@@ -1,3 +1,9 @@
+distkv-gpio (0.10.2-2) unstable; urgency=medium
+
+  * Fix packaging
+
+ -- Matthias Urlichs <matthias@urlichs.de>  Mon, 15 Mar 2021 14:38:23 +0100
+
 distkv-gpio (0.10.2-1) unstable; urgency=medium
 
   * Merge
