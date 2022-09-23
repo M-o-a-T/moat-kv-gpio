@@ -4,7 +4,7 @@ import anyio
 import asyncclick as click
 from collections.abc import Mapping
 
-from distkv.util import yprint, attrdict, as_service, P, attr_args
+from moat.util import yprint, attrdict, as_service, P, attr_args
 from distkv.data import res_get, res_update, node_attr
 
 import logging
@@ -70,7 +70,7 @@ async def attr_(obj, path, vars_, eval_, path_):
     """
     if len(path) != 3:
         raise click.UsageError("Three path elements (host.controller:pin) required")
-    await node_attr(obj, path, vars_, eval_, path_)
+    await node_attr(obj, obj.cfg.gpio.prefix + path, vars_, eval_, path_)
 
 
 @cli.command()
@@ -100,7 +100,7 @@ async def delete(obj, path):
 @click.argument("path", nargs=1, type=P)
 @click.pass_obj
 async def port(obj, path, typ, mode, attr):
-    """Set/get port settings. This is a shortcut for the "attr" command.
+    """Add/modify a port. This is a shortcut for the "attr" command.
 
     \b
     Known attributes for types+modes:
@@ -148,8 +148,8 @@ async def port(obj, path, typ, mode, attr):
                 v = False
             else:
                 raise click.UsageError("'%s' wants one of + -" % (k,))
-        elif k in {"src", "dest"} or (v is not None and " " in v):
-            v = v.split()
+        elif k in {"src", "dest"}:
+            v = P(v)
         else:
             try:
                 v = int(v)
