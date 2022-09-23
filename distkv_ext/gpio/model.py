@@ -169,6 +169,8 @@ class GPIOline(_GPIOnode):
                     if change is None or value == change:
                         await self.client.set(dest, value=value)
 
+                await set_value(old_value)
+
                 await evt.set()
                 mon_iter = mon.__aiter__()
                 while True:
@@ -178,12 +180,9 @@ class GPIOline(_GPIOnode):
                         # assume changed. E.g. old==0, so new==1, val:=1 if negate==0
                         await set_value(not old_value)
 
-                    try:
-                        async with anyio.fail_after(bounce):
-                            while True:
-                                e = await mon_iter.__anext__()
-                    except TimeoutError:
-                        pass
+                    async with anyio.move_on_after(bounce):
+                        while True:
+                            e = await mon_iter.__anext__()
 
                     if old_value == e.value:
                         # Some bouncery ended up where it started from.
