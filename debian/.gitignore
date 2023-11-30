@@ -4,5 +4,5 @@
 /*.debhelper-build-stamp
 /*.substvars
 /debhelper-build-stamp
-/distkv-gpio
-/distkv-gpio.service
+/moat-kv-gpio
+/moat-kv-gpio.service

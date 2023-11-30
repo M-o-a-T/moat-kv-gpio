@@ -1,23 +1,23 @@
-Source: distkv-gpio
+Source: moat-kv-gpio
 Maintainer: Matthias Urlichs <matthias@urlichs.de>
 Section: python
 Priority: optional
 Build-Depends: dh-python, python3-setuptools, python3-all, debhelper (>= 9),
-  distkv (>= 0.50),
+  moat-kv (>= 0.70),
   python3-asyncgpio,
 Standards-Version: 3.9.6
-Homepage: https://github.com/smurfix/distgpio
+Homepage: https://github.com/m-o-a-t/moat-kv-gpio
 
-Package: distkv-gpio
+Package: moat-kv-gpio
 Architecture: all
 Depends: ${misc:Depends}, ${python3:Depends},
-  distkv (>= 0.50),
+  moat-kv (>= 0.70),
   python3-asyncgpio,
-Replaces: python3-distgpio
-Conflicts: python3-distgpio
-Description: A distributed no-master key-value store
- DistGPIO is a link between GPIO pins and DistKV.
+Replaces: python3-distgpio, distkv-gpio
+Conflicts: python3-distgpio, distkv-gpio
+Description: GPIO access for moat-kv
+ MoaT-KV-GPIO is a link between GPIO pins and MoaT-KV.
  .
- It can write values that it reads from GPIO to some DistKV entry, monitor a
- DistKV entry and write any updates to a GPIO pin, and work with DistKV's runner
+ It can write values that it reads from GPIO to some MoaT-KV entry, monitor a
+ MoaT-KV entry and write any updates to a GPIO pin, and work with MoaT-KV's runner
  system, either centrally or distributed.
